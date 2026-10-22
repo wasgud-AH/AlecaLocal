@@ -1,0 +1,7 @@
+# Local decryption key (never commit)
+aleca-key.json
+
+# Price and wiki caches (regenerated automatically, reflect your inventory)
+data/
+
+node_modules/
