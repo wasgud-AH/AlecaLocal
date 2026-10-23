@@ -26,7 +26,7 @@ The page refreshes by itself whenever AlecaFrame rewrites its data (after the ga
 
 ## Tabs
 
-- **Overview**: MR, currencies, forma, foundry timers, boosters, last mission, focus, intrinsics, syndicates, slots, decrypted JSON export
+- **Overview**: tracked-item widgets (pick any resource, e.g. Moonflesh, set an optional goal, drag or Alt+←/→ to reorder; saved in this browser), MR, currencies, forma, foundry timers, boosters, last mission, focus, intrinsics, syndicates, slots, decrypted JSON export
 - **Equipment**: every owned frame/weapon/companion with rank, forma, mastered state
 - **Mastery**: every masterable item with status, ownership, mastery XP left; CSV export
 - **Relics**: owned relics by era/refinement/vault status with drop tables and which rewards you already own

@@ -42,6 +42,20 @@ test('keeps enough arcane copies for one max rank', () => {
   assert.strictEqual(a.excess, 4);
 });
 
+test('item search finds unowned items and lists owned ones first', () => {
+  const { searchItems } = require('./lib/catalog');
+  const items = new Map([
+    ['M/Moonflesh', { uniqueName: 'M/Moonflesh', _file: 'Misc' }],
+    ['M/Moonstone', { uniqueName: 'M/Moonstone', _file: 'Resources' }],
+    ['S/MoonSkin', { uniqueName: 'S/MoonSkin', _file: 'Skins' }],
+  ]);
+  const names = { 'M/Moonflesh': 'Moonflesh', 'M/Moonstone': 'Moonstone', 'S/MoonSkin': 'Moon Skin' };
+  const db = { items, name: un => names[un], image: () => null };
+  const m = { inventory: [{ uniqueName: 'M/Moonstone', name: 'Moonstone', count: 7, image: null }], relics: [] };
+  const out = searchItems(db, m, 'MOON');
+  assert.deepStrictEqual(out.map(x => [x.name, x.owned]), [['Moonstone', 7], ['Moonflesh', 0]]);
+});
+
 test('price run retries 429s and network errors without reporting a failure', async () => {
   const fs = require('fs'), os = require('os'), path = require('path');
   const { Market } = require('./lib/market');

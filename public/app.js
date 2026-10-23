@@ -20,6 +20,7 @@ const S = {
   f: store.get('filters', {}), // per-tab filter state
   sort: {},
   sell: null, // { rows, status } from /api/sell
+  widgets: store.get('widgets', []), // tracked items on Overview: [{ un, name, image, goal }]
 };
 
 const $ = s => document.querySelector(s);
@@ -94,7 +95,7 @@ V.overview = m => {
     const left = r.completes - now;
     return `<tr><td>${esc(r.name)}</td><td class="n">${left <= 0 ? '<span class="tag good">Ready</span>' : esc(dur(left))}</td></tr>`;
   }).join('') : '<tr><td class="muted">Nothing building</td></tr>';
-  return `
+  return `${widgetRow(m)}
   <div class="stats">
     ${stat('Mastery Rank', esc(a.masteryRank ?? '—'))}
     ${stat('Platinum', num(a.platinum))}
@@ -135,6 +136,125 @@ V.overview = m => {
     </div>
   </div>`;
 };
+
+/* ---------------- tracked-item widgets ---------------- */
+
+function ownedCount(m, un) {
+  const x = m.inventory.find(i => i.uniqueName === un) || m.relics.find(r => r.uniqueName === un);
+  return x ? x.count : 0;
+}
+
+function widgetRow(m) {
+  const card = (w, i) => {
+    const n = ownedCount(m, w.un);
+    const d = m.deltas.find(x => x.uniqueName === w.un);
+    return `<div class="stat widget" draggable="true" tabindex="0" data-widx="${i}" title="Drag, or Alt+←/→, to reorder">
+      <button class="wdel" data-wdel="${i}" title="Stop tracking" aria-label="Stop tracking ${esc(w.name)}">×</button>
+      <div class="whead">${img(w.image, w.name)}<div class="k">${link(w.un, w.name)}</div></div>
+      <div class="v">${num(n)}${w.goal ? `<span class="muted" style="font-size:14px;font-weight:400"> / ${num(w.goal)}</span>` : ''}</div>
+      ${w.goal ? `<div class="meter"><i class="${n >= w.goal ? 'full' : ''}" style="width:${Math.min(100, pct(n, w.goal))}%"></i></div>` : ''}
+      <div class="s">${d ? `<span class="${d.delta < 0 ? 'neg' : 'pos'}">${d.delta > 0 ? '+' : ''}${num(d.delta)} recently</span> · ` : ''}<a class="item" data-wgoal="${i}">${w.goal ? 'Edit goal' : 'Set goal'}</a></div>
+    </div>`;
+  };
+  return `<h2 style="margin-top:4px">Tracked items</h2>
+  <div class="stats" style="margin-bottom:16px">${S.widgets.map(card).join('')}<button class="stat wadd" id="widgetAdd">+ Track an item</button></div>`;
+}
+
+function saveWidgets(focusIdx) {
+  store.set('widgets', S.widgets);
+  render();
+  if (focusIdx != null) { const el = document.querySelector(`[data-widx="${focusIdx}"]`); if (el) el.focus(); }
+}
+
+function moveWidget(from, to) {
+  if (to < 0 || to >= S.widgets.length || from === to) return;
+  const [w] = S.widgets.splice(from, 1);
+  S.widgets.splice(to, 0, w);
+  saveWidgets(to);
+}
+
+let pickTimer, pickSeq = 0, pickRows = [];
+function openPicker() {
+  $('#pickQ').value = '';
+  $('#pickList').innerHTML = '<div class="empty">Type an item name, e.g. Moonflesh.</div>';
+  $('#widgetPicker').showModal();
+  $('#pickQ').focus();
+}
+
+async function searchPick(q) {
+  const seq = ++pickSeq;
+  if (!q) { $('#pickList').innerHTML = ''; return; }
+  try {
+    const r = await fetch('/api/catalog?q=' + encodeURIComponent(q));
+    const rows = await r.json();
+    if (!r.ok) throw new Error(rows.error || r.statusText);
+    if (seq !== pickSeq) return; // a newer search is on its way
+    pickRows = rows;
+    const tracked = new Set(S.widgets.map(w => w.un));
+    $('#pickList').innerHTML = rows.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${rows.map((x, i) =>
+      `<div class="card click" data-pick="${i}">${img(x.image, x.name)}<div class="body"><div class="t">${esc(x.name)}</div>
+        <div class="m">${x.owned ? `Own ${num(x.owned)}` : 'Not owned'}${tracked.has(x.uniqueName) ? ' · <span class="pos">tracked</span>' : ''}</div></div></div>`).join('')}</div>`
+      : '<div class="empty">No items match.</div>';
+  } catch (e) {
+    if (seq === pickSeq) $('#pickList').innerHTML = `<div class="empty">Search failed: ${esc(e.message)}</div>`;
+  }
+}
+
+$('#pickQ').addEventListener('input', e => { clearTimeout(pickTimer); pickTimer = setTimeout(() => searchPick(e.target.value.trim()), 150); });
+
+document.addEventListener('click', e => {
+  if (e.target.id === 'widgetPicker' || e.target.id === 'pickClose') { $('#widgetPicker').close(); return; }
+  const t = e.target.closest('#widgetAdd,[data-wdel],[data-wgoal],[data-pick]');
+  if (!t) return;
+  if (t.id === 'widgetAdd') openPicker();
+  else if (t.dataset.wdel) { S.widgets.splice(+t.dataset.wdel, 1); saveWidgets(); }
+  else if (t.dataset.wgoal) {
+    const w = S.widgets[+t.dataset.wgoal];
+    const v = prompt(`Goal for ${w.name} (leave empty for none)`, w.goal || '');
+    if (v === null) return;
+    w.goal = parseInt(v.replace(/\D/g, ''), 10) || 0;
+    saveWidgets();
+  } else if (t.dataset.pick) {
+    const x = pickRows[+t.dataset.pick];
+    if (!S.widgets.some(w => w.un === x.uniqueName)) S.widgets.push({ un: x.uniqueName, name: x.name, image: x.image, goal: 0 });
+    $('#widgetPicker').close();
+    saveWidgets();
+  }
+});
+
+let dragIdx = null;
+const clearDrop = () => document.querySelectorAll('.wover,.dragging').forEach(x => x.classList.remove('wover', 'dragging'));
+document.addEventListener('dragstart', e => {
+  const w = e.target.closest && e.target.closest('[data-widx]');
+  if (!w) return;
+  dragIdx = +w.dataset.widx;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', ''); // Firefox won't start a drag without data
+  w.classList.add('dragging');
+});
+document.addEventListener('dragover', e => {
+  const w = dragIdx != null && e.target.closest && e.target.closest('[data-widx]');
+  if (!w) return;
+  e.preventDefault();
+  document.querySelectorAll('.wover').forEach(x => x !== w && x.classList.remove('wover'));
+  w.classList.add('wover');
+});
+document.addEventListener('drop', e => {
+  const w = dragIdx != null && e.target.closest && e.target.closest('[data-widx]');
+  if (!w) return;
+  e.preventDefault();
+  const from = dragIdx;
+  dragIdx = null;
+  clearDrop();
+  moveWidget(from, +w.dataset.widx);
+});
+document.addEventListener('dragend', () => { dragIdx = null; clearDrop(); });
+document.addEventListener('keydown', e => {
+  const w = e.target.dataset && e.target.dataset.widx;
+  if (w == null || !e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+  e.preventDefault();
+  moveWidget(+w, +w + (e.key === 'ArrowLeft' ? -1 : 1));
+});
 
 function syndicateTable(list) {
   const groups = [...new Set(list.map(s => s.group))];

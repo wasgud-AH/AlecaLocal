@@ -11,6 +11,7 @@ const { buildModel } = require('./lib/model');
 const { Market } = require('./lib/market');
 const sell = require('./lib/sell');
 const { itemDetails } = require('./lib/details');
+const { searchItems } = require('./lib/catalog');
 const detailCache = {};
 const { Wiki, pageFor } = require('./lib/wiki');
 const wiki = new Wiki(path.join(__dirname, 'data'));
@@ -109,6 +110,10 @@ const server = http.createServer((req, res) => {
     const un = (url.searchParams.get('un') || '').replace(/#set$/, '');
     const d = itemDetails(db, state.model, un, detailCache);
     return d ? send(res, 200, JSON.stringify(d)) : send(res, 404, JSON.stringify({ error: 'unknown item' }));
+  }
+  if (p === '/api/catalog') {
+    if (!state.model || !db) return send(res, 503, JSON.stringify({ error: 'not loaded' }));
+    return send(res, 200, JSON.stringify(searchItems(db, state.model, url.searchParams.get('q'))));
   }
   if (p === '/api/wiki') {
     if (args.includes('--no-wiki')) return send(res, 404, JSON.stringify({ error: 'wiki lookups disabled' }));

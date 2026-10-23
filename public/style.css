@@ -85,6 +85,18 @@ details.part table { margin-top: 6px; }
 .wiki p { margin: 6px 0; }
 table.drops td, table.drops th { padding: 4px 6px; font-size: 13px; position: static; }
 dialog::backdrop { background: #000a; }
+#pickBody { padding: 16px 18px; }
+#pickBody .dnav { gap: 8px; }
+#pickQ { flex: 1; width: auto; }
+.widget { position: relative; cursor: grab; }
+.widget:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.widget.dragging { opacity: .4; }
+.widget.wover { border-color: var(--accent); }
+.widget .whead { display: flex; gap: 8px; align-items: center; padding-right: 18px; }
+.widget .whead img, .widget .whead .thumb { width: 28px; height: 28px; object-fit: contain; flex: none; border-radius: 4px; background: var(--panel2); font-size: 13px; }
+.widget .wdel { position: absolute; top: 4px; right: 4px; padding: 0 6px; line-height: 18px; background: none; border: 0; color: var(--muted); }
+.widget .wdel:hover { color: var(--bad); }
+.wadd { border-style: dashed; color: var(--muted); min-height: 90px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
 .kv .k { color: var(--muted); }
 @media (max-width: 700px) { input[type=search] { width: 140px; } th { top: 0; } }
