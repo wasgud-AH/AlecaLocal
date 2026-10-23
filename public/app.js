@@ -3,7 +3,7 @@
 
 const TABS = [
   ['overview', 'Overview'], ['equipment', 'Equipment'], ['mastery', 'Mastery'], ['relics', 'Relics'],
-  ['primes', 'Prime Sets'], ['sell', 'Sell'], ['mods', 'Mods & Arcanes'], ['rivens', 'Rivens'], ['inventory', 'Inventory'],
+  ['primes', 'Prime Sets'], ['crafting', 'Weapon Recipes'], ['sell', 'Sell'], ['mods', 'Mods & Arcanes'], ['rivens', 'Rivens'], ['inventory', 'Inventory'],
   ['starchart', 'Star Chart'], ['recent', 'Recent Gains'],
 ];
 
@@ -170,18 +170,19 @@ function categoryChips(rows, key = 'cat') {
 V.equipment = m => {
   const cat = filt('cat', 'all'), st = filt('st', 'all');
   const rows = m.equipment.filter(e => (cat === 'all' || e.category === cat)
-    && (st === 'all' || (st === 'mastered' ? e.mastered : !e.mastered))
+    && (st === 'all' || (st === 'needed' ? e.neededFor.length > 0 : st === 'mastered' ? e.mastered : !e.mastered))
     && match(e.name, e.customName, e.category));
   const sortBy = filt('sort', 'name');
   rows.sort(sortBy === 'rank' ? (a, b) => b.rank - a.rank : sortBy === 'forma' ? (a, b) => b.forma - a.forma : (a, b) => a.name.localeCompare(b.name));
   return `<div class="bar">${categoryChips(m.equipment)}</div>
-  <div class="bar">${chips('st', [['all', 'Any'], ['mastered', 'Mastered'], ['unmastered', 'Not mastered']], 'all')}
+  <div class="bar">${chips('st', [['all', 'Any'], ['mastered', 'Mastered'], ['unmastered', 'Not mastered'], ['needed', 'Needed for crafting']], 'all')}
     <select data-fsel="sort">${[['name', 'Sort: name'], ['rank', 'Sort: rank'], ['forma', 'Sort: forma']].map(([v, l]) => `<option value="${v}" ${sortBy === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     ${countBar(rows.length, m.equipment.length)}</div>
   <div class="grid">${rows.map(e => `<div class="card ${e.mastered ? 'mastered' : ''}">${img(e.image, e.name)}<div class="body">
     <div class="t" title="${esc(e.name)}">${link(e.uniqueName, e.customName || e.name)}</div>
     <div class="m">${esc(e.category)} · Rank ${e.rank}/${e.maxRank}${e.forma ? ` · ${e.forma} forma` : ''}</div>
     <div>${e.mastered ? '<span class="tag good">Mastered</span>' : ''}${e.isPrime ? '<span class="tag gold">Prime</span>' : ''}${e.archonShards.length ? `<span class="tag">${e.archonShards.length} shards</span>` : ''}</div>
+    ${e.neededFor.length ? `<div class="m" title="Crafting these uses up this weapon">Keep for: ${e.neededFor.map(n => link(n.uniqueName, n.name) + (n.need > 1 ? ` (needs ${n.need})` : '')).join(', ')}</div>` : ''}
     <div class="meter"><i class="${e.rank >= e.maxRank ? 'full' : ''}" style="width:${pct(e.rank, e.maxRank)}%"></i></div>
   </div></div>`).join('')}</div>${rows.length ? '' : '<div class="empty">Nothing matches.</div>'}`;
 };
@@ -246,6 +247,40 @@ V.primes = m => {
       ${p.partsDucats ? `<span class="tag gold">${num(p.partsDucats)} ducats</span>` : ''}</div></div></div>
     <ul class="rewards">${p.components.map(c => `<li><span class="${c.owned >= c.need ? 'pos' : 'muted'}">${link(c.tradeUniqueName || c.uniqueName, c.name)}${c.need > 1 ? ` ×${c.need}` : ''}</span>
       <span title="${esc(c.relics.map(r => `${r.relic} (${r.rarity})`).join('\n'))}">${c.owned}/${c.need} · ${c.ducats}d</span></li>`).join('')}</ul>
+  </div>`).join('')}</div>${rows.length ? '' : '<div class="empty">Nothing matches.</div>'}`;
+};
+
+V.crafting = m => {
+  const st = filt('st', 'todo');
+  const todo = c => !c.owned && c.status !== 'mastered';
+  const rows = m.craftChains.filter(c => (st === 'all' || (st === 'todo' ? todo(c) : st === 'ready' ? todo(c) && c.ready : !todo(c)))
+    && match(c.name, c.category, ...c.requires.map(r => r.name)));
+  const statusTag = c => c.status === 'mastered' ? '<span class="tag good">Mastered</span>'
+    : c.owned ? '<span class="tag">Owned</span>'
+    : c.ready ? '<span class="tag gold">Ready to build</span>'
+    : c.weaponsReady ? '<span class="tag warn">Weapons ready · missing other materials</span>'
+    : `<span class="tag bad">Missing weapons</span>${c.materialsReady ? '' : '<span class="tag warn">Missing other materials</span>'}`;
+  const material = x => `<li><span>${x.uniqueName ? link(x.uniqueName, x.name) : esc(x.name)}${x.need > 1 ? ` ×${num(x.need)}` : ''}</span>
+    <span class="neg">have ${num(x.owned)}/${num(x.need)}</span></li>`;
+  const req = r => {
+    const have = r.owned >= r.need;
+    const note = r.owned && r.status !== 'mastered' ? ' <span class="tag warn">level it first</span>'
+      : r.status === 'mastered' ? ' <span class="tag good">mastered</span>' : '';
+    return `<li><span>${link(r.uniqueName, r.name)}${r.need > 1 ? ` ×${r.need}` : ''}${note}
+        ${r.madeFrom ? `<div class="muted" style="font-size:11px">made from ${esc(r.madeFrom.join(' + '))}</div>` : ''}</span>
+      <span class="${have ? 'pos' : 'neg'}">have ${r.owned}/${r.need}</span></li>`;
+  };
+  return `<div class="bar">${chips('st', [['todo', 'Not built yet'], ['ready', 'Ready to build'], ['done', 'Owned or mastered'], ['all', 'All']], 'todo')}
+    ${countBar(rows.length, m.craftChains.length)}</div>
+  <p class="muted" style="font-size:12px;margin:0 0 10px">These items use up other weapons when crafted. Mastery from a consumed weapon is kept, so level each one to 30 before using it.
+    "Ready to build" also needs the blueprint, every other part and resource, and the credits.</p>
+  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${rows.map(c => `<div class="card relic">
+    <div class="head">${img(c.image, c.name)}<div class="body"><div class="t">${link(c.uniqueName, c.name)}</div>
+      <div class="m">${esc(c.category)}</div><div>${statusTag(c)}</div></div></div>
+    <div class="muted" style="font-size:11px;margin-top:6px">Weapons</div>
+    <ul class="rewards" style="margin-top:0">${c.requires.map(req).join('')}</ul>
+    ${c.status !== 'mastered' && !c.owned && !c.materialsReady ? `<div class="muted" style="font-size:11px;margin-top:6px">Other materials still missing</div>
+    <ul class="rewards" style="margin-top:0">${c.materials.filter(x => x.owned < x.need).map(material).join('')}</ul>` : ''}
   </div>`).join('')}</div>${rows.length ? '' : '<div class="empty">Nothing matches.</div>'}`;
 };
 

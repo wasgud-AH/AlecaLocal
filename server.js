@@ -35,21 +35,28 @@ let marketReady = null;
 
 async function refreshMarket(force) {
   if (NO_MARKET || !state.model) return;
-  marketReady = marketReady || market.loadIndex();
-  if (!(await marketReady)) { marketReady = null; return; }
-  sellCands = sell.candidates(state.model, market);
-  market.want(sell.priceRequests(sellCands), force);
-  broadcast({ type: 'market', status: market.status() });
+  // Callers don't await this, so an error escaping here would crash the process
+  try {
+    marketReady = marketReady || market.loadIndex();
+    if (!(await marketReady)) { marketReady = null; return; }
+    sellCands = sell.candidates(state.model, market);
+    market.want(sell.priceRequests(sellCands), force);
+    broadcast({ type: 'market', status: market.status() });
+  } catch (e) {
+    marketReady = null;
+    console.error('Market refresh failed:', e.message);
+  }
 }
 
 function fileInfo(f) {
   try { const s = fs.statSync(f); return { path: f, size: s.size, modified: s.mtimeMs }; } catch { return { path: f, missing: true }; }
 }
 
-function reload(reason) {
+function reload(reason, freshDb) {
   const t0 = Date.now();
   try {
-    if (!db) db = loadDb(ALECA_DIR);
+    // On failure loadDb throws before assigning, so the previous db stays usable
+    if (!db || freshDb) db = loadDb(ALECA_DIR);
     const lastText = decryptFile(LAST);
     const last = JSON.parse(lastText);
     let deltasText = null, deltas = null;
@@ -84,7 +91,11 @@ function send(res, code, body, type = 'application/json; charset=utf-8', extra =
   res.end(body);
 }
 
+// Blocks DNS rebinding: a web page whose domain resolves to 127.0.0.1 still sends its own Host header
+const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+
 const server = http.createServer((req, res) => {
+  if (!ALLOWED_HOSTS.has(req.headers.host)) return send(res, 403, 'forbidden', 'text/plain');
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
 
@@ -92,15 +103,16 @@ const server = http.createServer((req, res) => {
     if (!state.model) return send(res, 503, JSON.stringify({ error: state.error || 'not loaded' }));
     return send(res, 200, JSON.stringify(state.model));
   }
-  if (p === '/api/reload') { db = url.searchParams.has('db') ? null : db; reload('manual'); return send(res, 200, JSON.stringify({ ok: !state.error, error: state.error })); }
+  if (p === '/api/reload') { reload('manual', url.searchParams.has('db')); return send(res, 200, JSON.stringify({ ok: !state.error, error: state.error })); }
   if (p === '/api/item') {
-    if (!state.model) return send(res, 503, JSON.stringify({ error: 'not loaded' }));
+    if (!state.model || !db) return send(res, 503, JSON.stringify({ error: 'not loaded' }));
     const un = (url.searchParams.get('un') || '').replace(/#set$/, '');
     const d = itemDetails(db, state.model, un, detailCache);
     return d ? send(res, 200, JSON.stringify(d)) : send(res, 404, JSON.stringify({ error: 'unknown item' }));
   }
   if (p === '/api/wiki') {
     if (args.includes('--no-wiki')) return send(res, 404, JSON.stringify({ error: 'wiki lookups disabled' }));
+    if (!db) return send(res, 503, JSON.stringify({ error: 'not loaded' }));
     const page = pageFor(db, (url.searchParams.get('un') || '').replace(/#set$/, ''));
     if (!page) return send(res, 404, JSON.stringify({ error: 'no wiki page known' }));
     wiki.acquisition(page)
@@ -113,7 +125,8 @@ const server = http.createServer((req, res) => {
       disabled: NO_MARKET, status: market.status(), rows: market.indexAt ? sell.recommend(sellCands, market) : [],
     }));
   }
-  if (p === '/api/sell/refresh') { refreshMarket(true); return send(res, 200, '{"ok":true}'); }
+  // Clearing marketReady lets loadIndex fetch a new item list once its 24 h cache is stale
+  if (p === '/api/sell/refresh') { marketReady = null; refreshMarket(true); return send(res, 200, '{"ok":true}'); }
   if (p === '/api/events') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
     res.write('retry: 3000\n\n');

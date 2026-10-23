@@ -20,6 +20,8 @@ Then double-click `start.bat`, or:
 node server.js [--port 8787] [--dir "C:\path\to\AlecaFrame"] [--no-open]
 ```
 
+Run the tests with `node --test`.
+
 The page refreshes by itself whenever AlecaFrame rewrites its data (after the game syncs your inventory).
 
 ## Tabs
