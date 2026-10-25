@@ -693,6 +693,9 @@ async function load() {
     S.model = j;
     status(`Loaded ${new Date(j.generatedAt).toLocaleTimeString()} · AlecaFrame data from ${fdate(j.files.lastData && j.files.lastData.modified)} · auto-refreshes when AlecaFrame writes new data`);
     render();
+    let y = null;
+    try { y = sessionStorage.getItem('al.y'); sessionStorage.removeItem('al.y'); } catch {}
+    if (y) scrollTo(0, Number(y));
   } catch (e) {
     status('Could not load data: ' + e.message, true);
     render();
@@ -703,8 +706,10 @@ const es = new EventSource('/api/events');
 es.onmessage = ev => {
   const d = JSON.parse(ev.data);
   if (d.type === 'market') return queueSellReload();
-  if (d.error) status('Reload failed: ' + d.error, true);
-  else { load(); queueSellReload(); }
+  if (d.error) return status('Reload failed: ' + d.error, true);
+  // Full page reload on new data so every counter is rebuilt from scratch; keep the scroll position
+  try { sessionStorage.setItem('al.y', scrollY); } catch {}
+  location.reload();
 };
 
 render();
